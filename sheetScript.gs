@@ -8,7 +8,7 @@
 const maxVideos = 200;
 
 // Errorflags
-var errorflag = false;
+var errorFlag = false;
 var quotaExceeded = false;
 const quotaExceededReason = "quotaExceeded";
 var plErrorCount = 0;
@@ -20,16 +20,21 @@ const debugFlag_logWhenNoNewVideosFound = false;
 // Reserved Row and Column indices (zero-based)
 // If you use getRange remember those indices are one-based, so add + 1 in that call i.e.
 // sheet.getRange(iRow + 1, reservedColumnTimestamp + 1).setValue(isodate);
-const reservedTableRows = 3;          // Start of the range of the PlaylistID+ChannelID data
-const reservedTableColumns = 6;       // Start of the range of the ChannelID data (0: A, 1: B, 2: C, 3: D, 4: E, 5: F, ...)
-const reservedColumnPlaylist = 0;     // Column containing playlist to add to
-const reservedColumnTimestamp = 1;    // Column containing last timestamp
-const reservedColumnFrequency = 2;    // Column containing number of hours until new check
-const reservedColumnDeleteDays = 3;   // Column containing number of days before today until videos get deleted
-const reservedColumnShortsFilter = 4; // Column containing switch for using shorts filter
+const reservedTableRows = 3;        // Start of the range of the PlaylistID+ChannelID data
+const reservedTableColumns = 7;     // Start of the range of the ChannelID data (0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, ...)
+const reservedColumnPlaylist = 0;   // Column containing playlist to add to
+const reservedColumnTimestamp = 1;  // Column containing last timestamp
+const reservedColumnFrequency = 2;  // Column containing number of hours until new check
+const reservedColumnDeleteDays = 3; // Column containing number of days before today until videos get deleted
+const reservedColumnMinSeconds = 4; // Column containing switch for using shorts filter
+const reservedColumnMaxSeconds = 5; // Column containing switch for using shorts filter
 // Reserved lengths
 const reservedDebugNumRows = 900;   // Number of rows to use in a column before moving on to the next column in debug sheet
 const reservedDebugNumColumns = 26; // Number of columns to use in debug sheet, must be at least 4 to allow infinite cycle
+
+// Global values
+var minLength = undefined;
+var maxLength = undefined;
 
 // Extend Date with Iso String with timzone support (Youtube needs IsoDates)
 // https://stackoverflow.com/questions/17415579/how-to-iso-8601-format-a-date-with-timezone-offset-in-javascript
@@ -97,8 +102,7 @@ function updatePlaylists(sheet) {
 
     // Check if it's time to update already
     var lastDate = new Date(lastTimestamp);
-    var lastTime = lastDate.getTime();
-    var dateDiff = Date.now() - lastTime;
+    var dateDiff = Date.now() - lastDate.getTime();
     var nextTimeDiff = data[iRow][reservedColumnFrequency] * MILLIS_PER_HOUR;
     if (nextTimeDiff && dateDiff <= nextTimeDiff) {
       Logger.log("Skipped: Not time yet");
@@ -118,8 +122,7 @@ function updatePlaylists(sheet) {
             [].push.apply(channelIds, newChannelIds);
         } else if (channel.substring(0, 2) == "PL" && channel.length > 10)  // Add videos from playlist. MaybeTODO: better validation, since might interpret a channel with a name "PL..." as a playlist ID
           playlistIds.push(channel);
-        else if (!(channel.substring(0, 2) == "UC" && channel.length > 10)) // Check if it is not a channel ID (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
-        {
+        else if (!(channel.substring(0, 2) == "UC" && channel.length > 10)) {// Check if it is not a channel ID (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
           try {
             var user = YouTube.Channels.list('id', { forUsername: channel, maxResults: 1 });
             if (!user || !user.items) addError("Cannot query for user " + channel)
@@ -168,7 +171,7 @@ function updatePlaylists(sheet) {
 
       Logger.log("Filtering finished, left with " + newVideos.length + " videos")
 
-      if (!errorflag) {
+      if (!errorFlag) {
         var newTimestamp = null;
 
         // ...add videos to playlist...
@@ -200,13 +203,13 @@ function updatePlaylists(sheet) {
     // Prints logs to Debug sheet
     var newLogs = Logger.getLog().split("\n").slice(0, -1).map(function (log) {
       if (log.search("limit") != -1 && log.search("quota") != -1)
-        errorflag = true;
+        errorFlag = true;
       return log.split(" INFO: ");
     })
     if (newLogs.length > 0)
       debugSheet.getRange(nextDebugRow + 1, nextDebugCol + 1, newLogs.length, 2).setValues(newLogs)
     nextDebugRow += newLogs.length;
-    errorflag = false;
+    errorFlag = false;
     totalErrorCount += plErrorCount;
     plErrorCount = 0;
   }
@@ -396,7 +399,7 @@ function getPlaylistVideos(playlistId, startDate) {
     }
 
     // Filter out videos published before the last time this ran
-    [].push.apply(videos, results.items.map(video => video.contentDetails).filter(video => startDate <= new Date(video.videoPublishedAt)));
+    [].push.apply(videos, results.items.map(video => video.contentDetails).filter(video => startDate < new Date(video.videoPublishedAt)));
     nextPageToken = results.nextPageToken;
   }
 
@@ -450,7 +453,7 @@ function addVideosToPlaylist(playlistId, videos) {
   if (0 < totalVideos && totalVideos < maxVideos) {
     for (var i = 0; i < totalVideos; i++) {
       // Use a buffer of 1 second to retry this video next time on quota exceeded failure
-      lastSuccessTimestamp = new Date(new Date(videos[i].videoPublishedAt).getTime() - 5000).toIsoString();
+      lastSuccessTimestamp = new Date(new Date(videos[i].videoPublishedAt).getTime() - 1000).toIsoString();
       try {
         YouTube.PlaylistItems.insert({
           snippet: {
@@ -501,7 +504,9 @@ function addVideosToPlaylist(playlistId, videos) {
       }
     }
     Logger.log("Added " + successCount + " video(s) to playlist. Error for " + errorCount + " video(s).")
-    errorflag = (errorCount > 0);
+    errorFlag = (errorCount > 0);
+    if (!errorFlag)
+      lastSuccessTimestamp = new Date(new Date(lastSuccessTimestamp).getTime() + 1000).toIsoString();
   } else if (totalVideos == 0) {
     Logger.log("No new videos yet.")
   } else {
@@ -526,7 +531,7 @@ function deletePlaylistItems(playlistId, deleteBeforeTimestamp) {
       });
 
       results.items.forEach(video => {
-        if (video.contentDetails.videoPublishedAt < deleteBeforeTimestamp) { // this compares the timestamp when the video was published
+        if (video.contentDetails.videoPublishedAt < deleteBeforeTimestamp) {
           Logger.log("Del: | " + video.contentDetails)
           oldIds.push(video.id);
         } else {
@@ -573,24 +578,41 @@ function applyFilters(videos, sheet, iRow) {
   }
 
   let filters = []
-  // Removes all shorts if enabled
-  if (sheet.getRange(iRow + 1, reservedColumnShortsFilter + 1).getValue() == "No") {
-    Logger.log("Removing shorts");
-    filters.push(removeShortsFilter);
+
+  // Removes videos outside duration bounds if set
+  var minOrMaxSet = false;
+  minLength = sheet.getRange(iRow + 1, reservedColumnMinSeconds + 1).getValue();
+  maxLength = sheet.getRange(iRow + 1, reservedColumnMaxSeconds + 1).getValue();
+  if (minLength && minLength > 0) {
+    Logger.log("Removing videos shorter than " + minLength + " seconds");
+    minOrMaxSet = true;
   }
+  if (maxLength && maxLength > 0) {
+    Logger.log("Removing videos longer than " + maxLength + " seconds");
+    minOrMaxSet = true;
+  }
+  if (minOrMaxSet)
+    filters.push(removeVideosByDuration);
+
   return videos.filter(video => filters.reduce((acc, cur) => acc && cur(video.videoId), true));
 }
 
-// Returns false if video is a short by checking if its length is less than a minute
+// Returns false if video's length is outside the min and max bounds if set
 // There might be better/more accurate ways
-function removeShortsFilter(videoId) {
+function removeVideosByDuration(videoId) {
   try {
-    let response = YouTube.Videos.list('contentDetails', {
+    var response = YouTube.Videos.list('contentDetails', {
       id: videoId,
     });
     if (response.items && response.items.length) {
-      let duration = response.items[0].contentDetails.duration;
-      return !isLessThanAMinute(duration)
+      var duration = response.items[0].contentDetails.duration;
+      var durationSec = videoDurationToSeconds(duration);
+      // Since there can be a 1 second variation, we check for +- 1 second, due to following bug
+      // https://stackoverflow.com/questions/72459082/yt-api-pulling-different-video-lengths-for-youtube-videos
+      if (minLength && durationSec <= minLength + 1)
+        return true;
+      else if (maxLength && durationSec >= maxLength - 1)
+        return true;
     }
   } catch (e) {
     if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
@@ -601,19 +623,13 @@ function removeShortsFilter(videoId) {
   return false;
 }
 
-// Checks if an ISO 8601 duration is less or equal than a minute.
-// Verifying the duration is of the form PT1M or PTXXX.XXXS where X represents digits.
-function isLessThanAMinute(duration) {
-  // Check if duration is 1 minute
-  // Since there can be a 1 second variation, we check for 1 minute + 1 second too, due to following bug
-  // https://stackoverflow.com/questions/72459082/yt-api-pulling-different-video-lengths-for-youtube-videos
-  if (duration == "PT1M" || duration == "PT1M1S") return true;
-  if (duration.slice(0, 2) != "PT") return false;
-  for (let i = 2; i < duration.length - 1; i++) {
-    // Check if is digit
-    if (duration[i] > '9') return false;
-  }
-  return duration[duration.length - 1] == 'S';
+// Converts the time components of an ISO8601 duration to seconds for comparison
+const videoDurationRegex = "T([.,0-9]+H)?([.,0-9]+M)?([.,0-9]+S)?";
+function videoDurationToSeconds(duration) {
+  const matches = duration.match(videoDurationRegex);
+  return parseFloat(!matches[1] ? 0 : matches[1].slice(0, -1)) * 3660 +
+    parseFloat(!matches[2] ? 0 : matches[2].slice(0, -1)) * 60 +
+    parseFloat(!matches[3] ? 0 : matches[3].slice(0, -1));
 }
 
 //
@@ -719,7 +735,7 @@ function getLogs(timestamp) {
 // Log errors in debug sheet and throw an error
 function addError(s) {
   Logger.log(s);
-  errorflag = true;
+  errorFlag = true;
   plErrorCount += 1;
 }
 
@@ -770,25 +786,4 @@ function playlist(pl, sheetID) {
   }
   var playlistId = data[pl][reservedColumnPlaylist];
   return playlistId
-}
-
-function test1() {
-  Logger.log("hi")
-  // let duration = "";
-  // Logger.log(duration[duration.length - 1]);
-  // let videoId = "FAyKDaXEAgc";
-  // let response = YouTube.Videos.list('contentDetails', {
-  //   id: videoId,
-  // });
-  // if (response.items && response.items.length) {
-  //   let duration = response.items[0].contentDetails.duration;
-  //   if (isLessThanAMinute(duration)) {
-  //     Logger.log("Is a short");
-  //   } else {
-  //     Logger.log("Is not a short");
-  //   }
-  // }
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-  let videoIds = ["FAyKDaXEAgc", "_y_QLeVOpqs", "7KEA5_8rd0A", "LTiI6tvU48c"];
-  Logger.log(applyFilters(videoIds, sheet));
 }
