@@ -610,9 +610,9 @@ function removeVideosByDuration(videoId) {
       // Since there can be a 1 second variation, we check for +- 1 second, due to following bug
       // https://stackoverflow.com/questions/72459082/yt-api-pulling-different-video-lengths-for-youtube-videos
       if (minLength && durationSec <= minLength + 1)
-        return true;
+        return false;
       else if (maxLength && durationSec >= maxLength - 1)
-        return true;
+        return false;
     }
   } catch (e) {
     if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
@@ -620,7 +620,7 @@ function removeVideosByDuration(videoId) {
     }
     addError("Problem filtering shorts for video with id " + videoId + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
   }
-  return false;
+  return true;
 }
 
 // Converts the time components of an ISO8601 duration to seconds for comparison
