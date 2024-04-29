@@ -613,6 +613,8 @@ function removeVideosByDuration(videoId) {
         return false;
       else if (maxLength && durationSec >= maxLength - 1)
         return false;
+      else
+        return true;
     }
   } catch (e) {
     if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
@@ -620,7 +622,7 @@ function removeVideosByDuration(videoId) {
     }
     addError("Problem filtering shorts for video with id " + videoId + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
   }
-  return true;
+  return false;
 }
 
 // Converts the time components of an ISO8601 duration to seconds for comparison
