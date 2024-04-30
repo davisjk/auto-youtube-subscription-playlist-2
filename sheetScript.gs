@@ -626,14 +626,13 @@ function removeVideosByDuration(videoId) {
 }
 
 // Converts the time components of an ISO8601 duration to seconds for comparison
-const videoDurationRegex = "T([.,0-9]+H)?([.,0-9]+M)?([.,0-9]+S)?";
+const videoDurationRegex = "P?([.,0-9]+D)?T?([.,0-9]+H)?([.,0-9]+M)?([.,0-9]+S)?";
 function videoDurationToSeconds(duration) {
-  if (duration == "P0D")
-    return 0;
   const matches = duration.match(videoDurationRegex);
-  return parseFloat(!matches[1] ? 0 : matches[1].slice(0, -1)) * 3660 +
-    parseFloat(!matches[2] ? 0 : matches[2].slice(0, -1)) * 60 +
-    parseFloat(!matches[3] ? 0 : matches[3].slice(0, -1));
+  return parseFloat(!matches[1] ? 0 : matches[1].slice(0, -1)) * 87840 +
+    parseFloat(!matches[2] ? 0 : matches[2].slice(0, -1)) * 3660 +
+    parseFloat(!matches[3] ? 0 : matches[3].slice(0, -1)) * 60 +
+    parseFloat(!matches[4] ? 0 : matches[4].slice(0, -1));
 }
 
 //
