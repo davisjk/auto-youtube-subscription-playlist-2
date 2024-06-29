@@ -108,48 +108,51 @@ function updatePlaylists(sheet) {
       Logger.log("Skipped: Not time yet");
     } else {
       /// ...get channels...
-      var channelIds = [];
+      var channelHandles = [];
       var playlistIds = [];
       for (var iColumn = reservedTableColumns; iColumn < sheet.getLastColumn(); iColumn++) {
-        var channel = data[iRow][iColumn];
-        if (!channel)
+        var sourceId = data[iRow][iColumn];
+        if (!sourceId)
           continue;
-        else if (channel == "ALL") {
+        else if (sourceId == "ALL") {
           var newChannelIds = getAllChannelIds();
           if (!newChannelIds || newChannelIds.length === 0)
             addError("Could not find any subscriptions");
           else
-            [].push.apply(channelIds, newChannelIds);
-        } else if (channel.substring(0, 2) == "PL" && channel.length > 10)  // Add videos from playlist. MaybeTODO: better validation, since might interpret a channel with a name "PL..." as a playlist ID
-          playlistIds.push(channel);
-        else if (!(channel.substring(0, 2) == "UC" && channel.length > 10)) {// Check if it is not a channel ID (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
+            [].push.apply(channelHandles, newChannelIds);
+        } else if (["PL", "UU", "OL"].includes(sourceId.substring(0, 2)) && sourceId.length > 10)  // Add videos from playlists. MaybeTODO: better validation, since might interpret a channel with a name "PL..." as a playlist ID
+          playlistIds.push(sourceId);
+        else if (sourceId.substring(0, 2) == "UC" && sourceId.length > 10) // Add videos from channel upload playlists. MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
+        {
+          playlistIds.push("UU" + sourceId.substring(2));
+        } else if (sourceId.substring(0, 1) == "@") // Check if it is not a channel handle (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
+          channelHandles.push(sourceId);
+        else {
           try {
-            var user = YouTube.Channels.list('id', { forUsername: channel, maxResults: 1 });
-            if (!user || !user.items) addError("Cannot query for user " + channel)
-            else if (user.items.length === 0) addError("No user with name " + channel)
-            else if (user.items.length !== 1) addError("Multiple users with name " + channel)
-            else if (!user.items[0].id) addError("Cannot get id from user " + channel)
-            else channelIds.push(user.items[0].id);
+            var user = YouTube.Channels.list('id', { forUsername: sourceId, maxResults: 1 });
+            if (!user || !user.items) addError("Cannot query for user " + sourceId)
+            else if (user.items.length === 0) addError("No user with name " + sourceId)
+            else if (user.items.length !== 1) addError("Multiple users with name " + sourceId)
+            else if (!user.items[0].id) addError("Cannot get id from user " + sourceId)
+            else channelHandles.push(user.items[0].id);
           } catch (e) {
             if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
               quotaExceeded = true;
             }
-            addError("Cannot search for channel with name " + channel + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
+            addError("Cannot search for channel with name " + sourceId + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
             continue;
           }
         }
-        else
-          channelIds.push(channel);
       }
 
       /// ...get videos from the channels...
       var newVideos = [];
-      for (var i = 0; i < channelIds.length; i++) {
-        var videos = getChannelVideos(channelIds[i], lastDate);
+      for (var i = 0; i < channelHandles.length; i++) {
+        var videos = getChannelVideos(channelHandles[i], lastDate);
         if (!videos || typeof (videos) !== "object") {
-          addError("Failed to get videos with channel id " + channelIds[i])
+          addError("Failed to get videos with channel handle " + channelHandles[i])
         } else if (debugFlag_logWhenNoNewVideosFound && videos.length === 0) {
-          Logger.log("Channel with id " + channelIds[i] + " has no new videos")
+          Logger.log("Channel with id " + channelHandles[i] + " has no new videos")
         } else {
           [].push.apply(newVideos, videos);
         }
@@ -251,19 +254,28 @@ function getChannelId() {
   var text = result.getResponseText();
 
   if (button == ui.Button.OK) {
-    var results = YouTube.Search.list('id', {
-      q: text,
-      type: "channel",
-      maxResults: 50,
-    });
+    var results;
+    if (text.substring(0, 1) == "@") {
+      results = YouTube.Channels.list('id', {
+        forHandle: text,
+        maxResults: 1
+      });
+    } else {
+      results = YouTube.Search.list('id', {
+        q: text,
+        type: "channel",
+        maxResults: 50,
+      });
+    }
 
     for (var i = 0; i < results.items.length; i++) {
+      var id = results.items[i].id;
       var result = ui.alert(
         'Please confirm',
-        'Is this the link to the channel you want?\n\nhttps://youtube.com/channel/' + results.items[i].id.channelId + '',
+        'Is this the link to the channel you want?\n\nhttps://youtube.com/channel/' + (id.channelId ?? id) + '',
         ui.ButtonSet.YES_NO);
       if (result == ui.Button.YES) {
-        ui.alert('The channel ID is ' + results.items[i].id.channelId);
+        ui.alert('The channel ID is ' + (id.channelId ?? id));
         return;
       } else if (result == ui.Button.NO) {
         continue;
@@ -328,9 +340,9 @@ function getAllChannelIds() {
 
 // Get video metadata from Channels but with less Quota use
 // slower and date ordering is a bit messy but less quota costs
-function getChannelVideos(channelId, startDate) {
+function getChannelVideos(channelHandle, startDate) {
   if (quotaExceeded) {
-    addError("Skipping getting all channel ID " + channelId + " uploads due to exceeded quota!")
+    addError("Skipping getting all channel uploads for '" + channelHandle + "' due to exceeded quota!")
     return [];
   }
 
@@ -338,13 +350,13 @@ function getChannelVideos(channelId, startDate) {
   try {
     // Check Channel validity
     var results = YouTube.Channels.list('contentDetails', {
-      id: channelId
+      forHandle: channelHandle
     });
     if (!results) {
-      addError("YouTube channel search returned invalid response for channel with id " + channelId)
+      addError("YouTube channel search returned invalid response for channel with id " + channelHandle)
       return []
     } else if (!results.items || results.items.length === 0) {
-      addError("Cannot find channel with id " + channelId)
+      addError("Cannot find channel with id " + channelHandle)
       return []
     } else {
       uploadsPlaylistId = results.items[0].contentDetails.relatedPlaylists.uploads;
@@ -353,7 +365,7 @@ function getChannelVideos(channelId, startDate) {
     if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
       quotaExceeded = true;
     }
-    addError("Cannot search YouTube for channel with id " + channelId + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
+    addError("Cannot search YouTube for channel with id " + channelHandle + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
     return [];
   }
 
@@ -384,7 +396,8 @@ function getPlaylistVideos(playlistId, startDate) {
     } catch (e) {
       if (e.details) {
         if (e.details.code === 404) {
-          Logger.log("Warning: Channel " + channelId + " does not have any uploads in " + uploadsPlaylistId + ", ignore if this is intentional as this will not fail the script. API error details for troubleshooting: " + JSON.stringify(e.details));
+          Logger.log("Warning: Channel does not have any uploads in " + playlistId + ", ignore if this is intentional as this will not fail the script. API error details for troubleshooting: " + JSON.stringify(e.details));
+          return [];
         }
         if (e.details.errors.some(error => error.reason == quotaExceededReason)) {
           Logger.log("Cannot search YouTube with playlist id " + playlistId + ", ERROR: " + "Message: [" + e.message + "] Details: " + JSON.stringify(e.details));
