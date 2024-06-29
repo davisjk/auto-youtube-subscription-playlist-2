@@ -123,9 +123,8 @@ function updatePlaylists(sheet) {
         } else if (["PL", "UU", "OL"].includes(sourceId.substring(0, 2)) && sourceId.length > 10)  // Add videos from playlists. MaybeTODO: better validation, since might interpret a channel with a name "PL..." as a playlist ID
           playlistIds.push(sourceId);
         else if (sourceId.substring(0, 2) == "UC" && sourceId.length > 10) // Add videos from channel upload playlists. MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
-        {
           playlistIds.push("UU" + sourceId.substring(2));
-        } else if (sourceId.substring(0, 1) == "@") // Check if it is not a channel handle (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
+        else if (sourceId.substring(0, 1) == "@") // Check if it is not a channel handle (therefore a username). MaybeTODO: do a better validation, since might interpret a channel with a name "UC..." as a channel ID
           channelHandles.push(sourceId);
         else {
           try {
@@ -134,7 +133,7 @@ function updatePlaylists(sheet) {
             else if (user.items.length === 0) addError("No user with name " + sourceId)
             else if (user.items.length !== 1) addError("Multiple users with name " + sourceId)
             else if (!user.items[0].id) addError("Cannot get id from user " + sourceId)
-            else channelHandles.push(user.items[0].id);
+            else playlistIds.push("UU" + user.items[0].id.substring(2));
           } catch (e) {
             if (e.details && e.details.errors.some(error => error.reason == quotaExceededReason)) {
               quotaExceeded = true;
