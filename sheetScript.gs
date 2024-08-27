@@ -215,8 +215,6 @@ const DEFAULT_TIMESTAMP_HOURS = 24
 const MILLIS_PER_HOUR = 3600000;
 const MILLIS_PER_DAY = 86400000;
 const QUOTA_EXCEEDED_REASON = "quotaExceeded";
-// TODO rm this
-const quotaExceededReason = "quotaExceeded";
 const VIDEO_DURATION_REGEX = "P?([.,0-9]+D)?T?([.,0-9]+H)?([.,0-9]+M)?([.,0-9]+S)?";
 
 // Reserved Row and Column indices (zero-based)
